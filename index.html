@@ -284,27 +284,29 @@ function simulate(base,stn,loops,soilLoops,dragon){
   return {prob,ticksAvg};
 }
 
-// ---------- Hole suggestion (one hole per quadrant, none touching) ----------
-const SPOTS=[[7,8,13,14],[9,10,15,16],[19,20,25,26],[21,22,27,28]];
+// ---------- Hole suggestion (as many holes as the garden fits, none touching) ----------
 function isNeigh(a,b){const ax=a%6,ay=Math.floor(a/6),bx=b%6,by=Math.floor(b/6);return Math.abs(ax-bx)<=1&&Math.abs(ay-by)<=1;}
-function spread(ages,p){
-  const v=NEIGH[p].map(d=>ages[d]);
-  if(v.some(x=>typeof x!=='number')) return Infinity;
-  return Math.max(...v)-Math.min(...v);
-}
 function suggestHoles(){
   const ages=cells.map(c=>c.kind==='qb'?c.age:null);
-  let best=Infinity,bestSet=null;
-  for(const a of SPOTS[0])for(const b of SPOTS[1])for(const c of SPOTS[2])for(const d of SPOTS[3]){
-    const set=[a,b,c,d];
-    if(set.some(t=>cells[t].kind!=='qb')) continue;
-    let bad=false;
-    for(let i=0;i<4&&!bad;i++)for(let j=i+1;j<4;j++) if(isNeigh(set[i],set[j])){bad=true;break;}
-    if(bad) continue;
-    
-    let sum=0; for(const t of set){ const n=NEIGH[t].map(x=>ages[x]); if(n.some(x=>typeof x!=='number')){sum=Infinity;break;} sum+=Math.max(...n)-Math.min(...n);}
-    if(sum<best){best=sum;bestSet=set;}
+  // A tile can be a hole if it is a Queenbeet now and all 8 neighbours are unlocked Queenbeets
+  const cand=[];
+  for(let t=0;t<36;t++){
+    const n=NEIGH[t];
+    if(cells[t].kind==='qb'&&n&&n.every(d=>typeof ages[d]==='number')){
+      const v=n.map(d=>ages[d]);
+      cand.push({t,score:Math.max(...v)-Math.min(...v)});
+    }
   }
+  // Try every set of non-touching candidates: most holes first, then the smallest total age spread
+  let bestSet=null,bestN=0,best=Infinity;
+  (function pick(i,set,sum){
+    if(set.length>bestN||(set.length===bestN&&set.length>0&&sum<best)){bestN=set.length;best=sum;bestSet=set.slice();}
+    for(let k=i;k<cand.length;k++){
+      const c=cand[k];
+      if(set.some(s=>isNeigh(s,c.t))) continue;
+      set.push(c.t); pick(k+1,set,sum+c.score); set.pop();
+    }
+  })(0,[],0);
   return {set:bestSet,score:best};
 }
 
@@ -350,7 +352,7 @@ $('stn').addEventListener('change',render);
 $('suggest').addEventListener('click',()=>{
   cells.forEach(c=>{if(c.kind==='qb'){c.rec=false;c.hole=false;}});
   const s=suggestHoles();
-  if(!s.set){ $('holeNote').textContent='No valid set of four holes: each quadrant needs Queenbeets in its inner 2×2 and a full ring of Queenbeets around it. Simulating the garden as shown instead.'; render(); runSim(); return; }
+  if(!s.set){ $('holeNote').textContent='No tile can be a hole yet: a hole needs Queenbeets on all 8 surrounding tiles. Simulating the garden as shown instead.'; render(); runSim(); return; }
   s.set.forEach(t=>cells[t].rec=true);
   render();
   $('holeNote').textContent='Harvest the Queenbeets at '+s.set.map(tileName).join('; ')+'. Neighbour age spread: '+s.score+' total.';
