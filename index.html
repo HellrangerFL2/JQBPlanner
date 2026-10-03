@@ -286,21 +286,39 @@ function simulate(base,stn,loops,soilLoops,dragon){
 
 // ---------- Hole suggestion (as many holes as the garden fits, none touching) ----------
 function isNeigh(a,b){const ax=a%6,ay=Math.floor(a/6),bx=b%6,by=Math.floor(b/6);return Math.abs(ax-bx)<=1&&Math.abs(ay-by)<=1;}
-function suggestHoles(){
-  const ages=cells.map(c=>c.kind==='qb'?c.age:null);
-  // A tile can be a hole if it is a Queenbeet now and all 8 neighbours are unlocked Queenbeets
-  const cand=[];
-  for(let t=0;t<36;t++){
-    const n=NEIGH[t];
-    if(cells[t].kind==='qb'&&n&&n.every(d=>typeof ages[d]==='number')){
-      const v=n.map(d=>ages[d]);
-      cand.push({t,score:Math.max(...v)-Math.min(...v)});
+// Rank every possible hole by simulating it. Holes don't change how plants age, so one run of the
+// garden can score all candidates at once: at each candidate's turn in the tile order, count the tick
+// if all 8 neighbours are mature and alive. This captures the tile scan order (tiles above/left have
+// already aged that tick), the random aging, and how many neighbours sit at the youngest/oldest age.
+function scoreCandidates(cand,stn,loops,dragon){
+  const thr=80*stn, base=cells.map(c=>c.kind==='qb'?c.age:null), tot=new Float64Array(36);
+  const isCand=new Uint8Array(36); cand.forEach(t=>isCand[t]=1);
+  for(let i=0;i<loops;i++){
+    const plots=base.slice(); let alive=true;
+    for(let a=0;a<400&&alive;a++){
+      alive=false;
+      for(let b=0;b<36;b++){
+        if(isCand[b]){
+          let ok=true;
+          for(const d of NEIGH[b]){const v=plots[d]; if(v<thr||v>=100){ok=false;break;}}
+          if(ok) tot[b]++;
+        }
+        if(plots[b]!==null){ if(plots[b]<100){ plots[b]+=rf((1+0.4*Math.random())*dragon); alive=true; } }
+      }
     }
   }
-  // Try every set of non-touching candidates: most holes first, then the smallest total age spread
-  let bestSet=null,bestN=0,best=Infinity;
+  return cand.map(t=>({t,score:tot[t]/loops}));
+}
+function suggestHoles(stn,loops,dragon){
+  const ages=cells.map(c=>c.kind==='qb'?c.age:null);
+  // A tile can be a hole if it is a Queenbeet now and all 8 neighbours are unlocked Queenbeets
+  const ids=[];
+  for(let t=0;t<36;t++){const n=NEIGH[t]; if(cells[t].kind==='qb'&&n&&n.every(d=>typeof ages[d]==='number')) ids.push(t);}
+  const cand=scoreCandidates(ids,stn,loops,dragon);
+  // Try every set of non-touching candidates: most holes first, then the most expected eligible ticks
+  let bestSet=null,bestN=0,best=-1;
   (function pick(i,set,sum){
-    if(set.length>bestN||(set.length===bestN&&set.length>0&&sum<best)){bestN=set.length;best=sum;bestSet=set.slice();}
+    if(set.length>bestN||(set.length===bestN&&set.length>0&&sum>best)){bestN=set.length;best=sum;bestSet=set.slice();}
     for(let k=i;k<cand.length;k++){
       const c=cand[k];
       if(set.some(s=>isNeigh(s,c.t))) continue;
@@ -351,11 +369,14 @@ $('file').addEventListener('change',e=>{
 $('stn').addEventListener('change',render);
 $('suggest').addEventListener('click',()=>{
   cells.forEach(c=>{if(c.kind==='qb'){c.rec=false;c.hole=false;}});
-  const s=suggestHoles();
+  const stn=$('stn').checked?0.95:1;
+  const dragon=1+0.05*(($('si').checked?1:0)+($('rb').checked?0.1:0));
+  const loops=Math.max(100,Math.min(200000,parseInt($('loops').value)||10000));
+  const s=suggestHoles(stn,loops,dragon);
   if(!s.set){ $('holeNote').textContent='No tile can be a hole yet: a hole needs Queenbeets on all 8 surrounding tiles. Simulating the garden as shown instead.'; render(); runSim(); return; }
   s.set.forEach(t=>cells[t].rec=true);
   render();
-  $('holeNote').textContent='Harvest the Queenbeets at '+s.set.map(tileName).join('; ')+'. Neighbour age spread: '+s.score+' total.';
+  $('holeNote').textContent='Harvest the Queenbeets at '+s.set.map(tileName).join('; ')+'.';
   runSim();
 });
 $('simAsIs').addEventListener('click',()=>{ $('holeNote').textContent=''; runSim(); });
