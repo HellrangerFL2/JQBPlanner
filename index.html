@@ -107,8 +107,8 @@ code{font-family:var(--mono);font-size:12px}
     <div class="row" style="margin-top:12px">
       <label class="check"><input type="checkbox" id="stn" checked> Seedless to nay (plants mature at 76 instead of 80)</label>
       <label class="check"><input type="checkbox" id="si"> Supreme Intellect aura</label>
+      <label class="check"><input type="checkbox" id="rb"> Reality Bending aura</label>
     </div>
-    <p class="note">Soil is read from your save. Wood chips rolls mutations 3 times per tick, the other soils once. Supreme Intellect makes plants age 5% faster and adds 5% more mutation rolls. Queenbeet ID is the plant number the save uses (plant index + 1); change it only if your mods reorder plants.</p>
   </section>
 
 </div>
@@ -173,8 +173,17 @@ function readGarden(raw){
   if(nums.length<72) throw new Error('Couldn’t find the garden tiles in this save.');
   const tiles=[];
   for(let i=0;i<36;i++) tiles.push({id:nums[i*2],age:nums[i*2+1]});
-  const soil=parseInt((mg.split(' ')[0]||'').split(':')[1]);
-  return {tiles,level,soil:isNaN(soil)?null:soil,version:parts[0]};
+  // Seedless to nay: vanilla achievement #382, one '0'/'1' character per achievement in section 8
+  const version=parseFloat(parts[0]);
+  let ach=parts[7]||'';
+  if(version<2.0046){let v='';for(let i=0;i<ach.length;i++) v+=ach.charCodeAt(i).toString(2).substring(1); ach=v;}
+  const seedless=ach.charAt(382)==='1';
+  // Dragon: misc section fields 35 = dragon level, 36/37 = aura slots (18 = Reality Bending, 20 = Supreme Intellect)
+  const misc=parts[4].split(';');
+  const dLevel=parseInt(misc[35])||0, a1=parseInt(misc[36])||0, a2=parseInt(misc[37])||0;
+  const si=a1===20||a2===20;
+  const rb=(a1===18||a2===18)&&dLevel>=24;
+  return {tiles,level,seedless,si,rb,version:parts[0]};
 }
 
 // ---------- State ----------
@@ -310,8 +319,8 @@ function load(raw){
     buildCells(g.tiles,g.level);
     const n=cells.filter(c=>c.kind==='qb').length;
     $('srcTag').textContent='From your save';
-    if(g.soil!==null&&g.soil>=0&&g.soil<=4) $('soil').value=String(g.soil);
-    setMsg('Read your garden: Farm level '+g.level+', '+n+' Queenbeet'+(n===1?'':'s')+' found.', n?'ok':'err');
+    $('stn').checked=g.seedless; $('si').checked=g.si; $('rb').checked=g.rb;
+    setMsg('Read your garden: Farm level '+g.level+', '+n+' Queenbeet'+(n===1?'':'s')+' found. Seedless to nay: '+(g.seedless?'yes':'no')+'. Supreme Intellect: '+(g.si?'yes':'no')+(g.rb?', Reality Bending: yes':'')+'.', n?'ok':'err');
     if(!n) setMsg('Garden read, but no Queenbeets were found (looking for plant ID '+$('qbid').value+').','err');
     clearResults(); render();
   }catch(e){ setMsg(e.message,'err'); }
@@ -319,7 +328,7 @@ function load(raw){
 function clearResults(){ $('sProb').textContent='–';$('sTicks').textContent='–';$('sHoles').textContent='–';$('holeNote').textContent=''; }
 function runSim(){
   const stn=$('stn').checked?0.95:1;
-  const soilLoops=$('soil').value==='4'?3:1, dragon=$('si').checked?1.05:1;
+  const soilLoops=$('soil').value==='4'?3:1, dragon=1+0.05*(($('si').checked?1:0)+($('rb').checked?0.1:0));
   const loops=Math.max(100,Math.min(200000,parseInt($('loops').value)||10000));
   const base=toBase();
   const holes=base.map((v,i)=>v===""&&NEIGH[i]?i:-1).filter(i=>i>=0).length;
